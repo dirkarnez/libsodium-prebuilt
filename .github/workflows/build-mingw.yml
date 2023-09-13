@@ -1,0 +1,76 @@
+name: cpp-cmake-mingw-prebuilt-release-actions-workflow
+on:
+  push:
+    # Sequence of patterns matched against refs/tags
+    tags:
+      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+      - 'c*'
+
+jobs:
+  build:
+    name: Create Release
+    runs-on: windows-latest
+    env:
+      libraryName: libsodium
+      installationPath: libsodium-installation
+      tagName: 1.0.19 # target tag
+      mingwTargetZip: libsodium-${{ github.ref_name }}-x86_64-8.1.0-release-posix-seh-rt_v6-rev0.zip
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/checkout@v3
+        with:
+          repository: jedisct1/libsodium
+          path: libsodium
+          ref: ${{ env.tagName }}
+          submodules: true
+          
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: make autoconf automake libtool autogen perl
+
+      - name: curl x86_64-8.1.0-release-posix-seh-rt_v6-rev0.7z
+        shell: cmd
+        run: |
+          curl https://github.com/dirkarnez/cpp-tools/raw/main/x86_64-8.1.0-release-posix-seh-rt_v6-rev0.7z -L -O -J &&^
+          7z.exe x x86_64-8.1.0-release-posix-seh-rt_v6-rev0.7z
+          
+      - name: curl cmake-3.24.0-windows-x86_64.zip
+        shell: cmd
+        run: curl https://github.com/Kitware/CMake/releases/download/v3.24.0/cmake-3.24.0-windows-x86_64.zip -L --output cmake-3.24.0-windows-x86_64.zip && dir && 7z.exe x cmake-3.24.0-windows-x86_64.zip
+      
+      - name: set PATH, check mingw version, cmake generate, build and install
+        shell: msys2 {0}
+        run: |
+            workspace=$(pwd) &&
+            export PATH="$workspace/mingw64:$workspace/mingw64/bin:$workspace/msys64/usr/bin:/usr/bin" &&
+            cd libsodium && 
+            g++ --version && 
+            ./autogen.sh &&
+            ./configure --help &&
+            ./configure --prefix="$(pwd)/${{ env.installationPath }}" &&
+            mingw32-make.exe install
+            
+      # - name: copy customized openssl-config.cmake
+      #   shell: cmd
+      #   run: xcopy /H /Y /C "openssl-config.cmake" "openssl\${{ env.installationPath }}"
+        
+      # - name: copy customized openssl-config.cmake
+      #   shell: cmd
+      #   run: xcopy /H /Y /C "openssl-config-version.cmake" "openssl\${{ env.installationPath }}"
+        
+      - name: Archive Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: 'zip'
+          directory: "libsodium/${{ env.installationPath }}"
+          filename: "${{ env.mingwTargetZip }}"
+        
+      - name: Release prebuilt
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "libsodium/${{ env.installationPath }}/${{ env.mingwTargetZip }}"
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
